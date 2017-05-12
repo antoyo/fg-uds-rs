@@ -6,13 +6,11 @@ version = "0.1.0"
 [dependencies]
 bytes = "^0.4.3"
 futures = "^0.1.13"
+futures-glib = { git = "https://github.com/antoyo/futures-glib-rs" }
 gio-sys = "^0.3.4"
 glib-sys = "^0.3.4"
 libc = "^0.2.22"
 tokio-io = "^0.1.1"
-
-[dependencies.futures-glib]
-path = "../futures-glib-rs"
 
 [replace]
 

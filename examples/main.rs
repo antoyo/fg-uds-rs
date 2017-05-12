@@ -60,22 +60,22 @@ fn main() {
     let ex = Executor::new();
     ex.attach(&cx);
 
-    let (stream1, stream2) = UnixStream::pair().unwrap();
+    let (stream1, stream2) = UnixStream::pair(&cx).unwrap();
     let frame1 = stream1.framed(LineCodec);
     let frame2 = stream2.framed(LineCodec);
 
     ex.spawn(frame1.for_each(|value| {
-        println!("{:?}", value);
+        println!("Received: {:?}", value);
         Ok(())
-    }).map_err(|_| println!("Receive err")));
+    }).map_err(|_| ()));
 
     let remote = ex.remote();
 
     thread::spawn(move || {
         remote.spawn(|ex: Executor| {
             ex.spawn(frame2.send("Hello".to_string())
-                     .map(|_| println!("Send"))
-                     .map_err(|_| println!("Err")));
+                     .map(|_| ())
+                     .map_err(|_| ()));
             Ok(())
         });
     });

@@ -1,13 +1,10 @@
 extern crate bytes;
 extern crate futures;
 extern crate futures_glib;
-extern crate gio_sys;
 extern crate glib_sys;
 extern crate libc;
 #[macro_use]
 extern crate tokio_io;
-
-//mod gio;
 
 use std::cell::RefCell;
 use std::io::{self, Read, Write};

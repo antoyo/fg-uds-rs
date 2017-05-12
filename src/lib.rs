@@ -99,12 +99,8 @@ impl UnixStream {
                 let flags = SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK;
                 match cvt(libc::socketpair(libc::AF_UNIX, flags, 0, fds.as_mut_ptr())) {
                     Ok(_) => {
-                        let socket1 = UnixStream {
-                            inner: new_source(fds[0], cx),
-                        };
-                        let socket2 = UnixStream {
-                            inner: new_source(fds[1], cx),
-                        };
+                        let socket1 = UnixStream::from_fd(fds[0], cx);
+                        let socket2 = UnixStream::from_fd(fds[1], cx);
                         return Ok((socket1, socket2))
                     }
                     Err(ref e) if e.raw_os_error() == Some(libc::EINVAL) => {},
@@ -113,18 +109,20 @@ impl UnixStream {
             }
 
             try!(cvt(libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr())));
-            let socket1 = UnixStream {
-                inner: new_source(fds[0], cx),
-            };
-            let socket2 = UnixStream {
-                inner: new_source(fds[1], cx),
-            };
+            let socket1 = UnixStream::from_fd(fds[0], cx);
+            let socket2 = UnixStream::from_fd(fds[1], cx);
             try!(cvt(libc::ioctl(fds[0], libc::FIOCLEX)));
             try!(cvt(libc::ioctl(fds[1], libc::FIOCLEX)));
             let mut nonblocking = 1 as c_ulong;
             try!(cvt(libc::ioctl(fds[0], libc::FIONBIO, &mut nonblocking)));
             try!(cvt(libc::ioctl(fds[1], libc::FIONBIO, &mut nonblocking)));
             Ok((socket1, socket2))
+        }
+    }
+
+    pub fn from_fd(fd: RawFd, cx: &MainContext) -> Self {
+        UnixStream {
+            inner: new_source(fd, cx),
         }
     }
 

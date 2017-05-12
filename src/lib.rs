@@ -9,7 +9,7 @@ extern crate tokio_io;
 use std::cell::RefCell;
 use std::io::{self, Read, Write};
 use std::mem;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
 
 use bytes::{Buf, BufMut};
@@ -339,5 +339,11 @@ impl AsyncWrite for UnixStream {
             }
             Err(e) => Err(e),
         }
+    }
+}
+
+impl AsRawFd for UnixStream {
+    fn as_raw_fd(&self) -> RawFd {
+        self.inner.get_ref().channel.as_raw_fd()
     }
 }

@@ -83,6 +83,7 @@ fn new_source(fd: RawFd, cx: &MainContext) -> Source<Inner> {
     active.input(true).output(true);
 
     let channel = IoChannel::unix_new(fd);
+    channel.set_encoding(None);
     // Wrap the channel itself in a `Source` that we create and manage.
     let src = Source::new(Inner {
         channel,

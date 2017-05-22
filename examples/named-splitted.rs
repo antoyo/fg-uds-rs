@@ -63,7 +63,7 @@ fn main() {
     let ex = Executor::new();
     ex.attach(&cx);
 
-    remove_file(path).unwrap();
+    remove_file(path).ok();
     let listener = UnixListener::bind(path, &cx).unwrap();
 
     let remote = ex.remote();

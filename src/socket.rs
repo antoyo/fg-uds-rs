@@ -1,10 +1,14 @@
 use std::io;
 use std::mem;
+use std::os::unix::io::{IntoRawFd, RawFd};
+use std::path::Path;
 
+use futures_glib::IoChannel;
+use glib_sys;
 use libc;
 use libc::{c_int, c_ulong, SOCK_CLOEXEC, SOCK_NONBLOCK};
 
-use super::cvt;
+use super::{cvt, sockaddr_un};
 
 pub struct Socket {
     fd: c_int,
@@ -29,10 +33,16 @@ impl Socket {
 
             let fd = Socket { fd: try!(cvt(libc::socket(libc::AF_UNIX, ty, 0))) };
             try!(cvt(libc::ioctl(fd.fd, libc::FIOCLEX)));
-            let mut nonblocking = 1 as c_ulong;
-            try!(cvt(libc::ioctl(fd.fd, libc::FIONBIO, &mut nonblocking)));
             Ok(fd)
         }
+    }
+
+    pub fn connect<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        unsafe {
+            let (addr, len) = sockaddr_un(path.as_ref())?;
+            cvt(libc::connect(self.fd, &addr as *const _ as *const _, len))?;
+        }
+        Ok(())
     }
 
     pub fn fd(&self) -> c_int {
@@ -43,5 +53,19 @@ impl Socket {
         let ret = self.fd;
         mem::forget(self);
         ret
+    }
+
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        let mut nonblocking = nonblocking as c_ulong;
+        unsafe {
+            cvt(libc::ioctl(self.fd, libc::FIONBIO, &mut nonblocking))?;
+        }
+        Ok(())
+    }
+}
+
+impl IntoRawFd for Socket {
+    fn into_raw_fd(self) -> RawFd {
+        self.fd
     }
 }

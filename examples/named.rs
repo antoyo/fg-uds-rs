@@ -12,6 +12,7 @@ use std::thread;
 use bytes::BytesMut;
 use fg_uds::{UnixListener, UnixStream};
 use futures::{Future, Sink, Stream};
+use futures::sync::oneshot::channel;
 use futures_glib::{Executor, MainContext, MainLoop};
 use tokio_io::AsyncRead;
 use tokio_io::codec::{Decoder, Encoder};
@@ -63,36 +64,49 @@ fn main() {
     let ex = Executor::new();
     ex.attach(&cx);
 
-    remove_file(path).unwrap();
-    let listener = UnixListener::bind(path, &cx).unwrap();
-
     let remote = ex.remote();
 
-    let inner_ex = ex.clone();
-    let incoming = listener.incoming()
-        .for_each(move |(stream, _addr)| {
-            let frame = stream.framed(LineCodec);
+    let (sender, receiver) = channel();
 
-            inner_ex.spawn(frame.for_each(|value| {
-                println!("Received: {:?}", value);
-                Ok(())
-            }).map_err(|_| ()));
-            Ok(())
-        })
-        .map_err(|_| ());
-
-    ex.spawn(incoming);
-
+    let inner_path = path.clone();
     thread::spawn(move || {
         remote.spawn(move |ex: Executor| {
-            let stream2 = UnixStream::connect(path, &cx).unwrap();
-            let frame2 = stream2.framed(LineCodec);
-            ex.spawn(frame2.send("Hello".to_string())
-                     .map(|_| ())
-                     .map_err(|_| ()));
+            let cx = MainContext::default(|cx| cx.clone());
+            remove_file(inner_path).ok();
+            let listener = UnixListener::bind(inner_path, &cx).unwrap();
+
+            sender.send(true);
+
+            let inner_ex = ex.clone();
+            let incoming = listener.incoming()
+                .for_each(move |(stream, _addr)| {
+                    let frame = stream.framed(LineCodec);
+
+                    inner_ex.spawn(frame.for_each(|value| {
+                        println!("Received: {:?}", value);
+                        Ok(())
+                    }).map_err(|_| ()));
+                    Ok(())
+                })
+            .map_err(|_| ());
+
+            ex.spawn(incoming);
             Ok(())
         });
     });
+
+    let send = receiver.then(move |_| {
+            UnixStream::connect(path, &cx)
+        })
+        .and_then(|stream2| {
+            Ok(stream2.framed(LineCodec))
+        })
+        .and_then(|frame2| {
+            frame2.send("Hello".to_string())
+        });
+    // TODO: send too early? Should accept before?
+    ex.spawn(send.map(|_| ())
+             .map_err(|_| ()));
 
     lp.run();
     ex.destroy();

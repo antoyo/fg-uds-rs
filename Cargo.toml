@@ -5,7 +5,7 @@ description = "Asynchronous unix domain socket running on the futures-glib main 
 license = "MIT"
 name = "fg-uds"
 repository = "https://github.com/antoyo/fg-uds-rs"
-version = "0.1.0"
+version = "0.1.1"
 
 [dependencies]
 bytes = "^0.4.3"

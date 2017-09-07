@@ -8,6 +8,7 @@ extern crate futures;
 extern crate futures_glib;
 extern crate glib_sys;
 extern crate libc;
+extern crate nix;
 #[macro_use]
 extern crate tokio_io;
 
@@ -27,7 +28,8 @@ use bytes::{Buf, BufMut};
 use futures::{Async, Future, Poll};
 use futures::task::{self, Task};
 use futures_glib::{IoChannel, IoCondition, MainContext, Source, SourceFuncs, UnixToken};
-use libc::{c_ulong, EINPROGRESS, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
+use libc::EINPROGRESS;
+use nix::sys::socket::{AddressFamily, SockAddr, SockType, UnixAddr, connect, socket, SOCK_NONBLOCK};
 use tokio_io::{AsyncRead, AsyncWrite};
 
 pub use listener::UnixListener;
@@ -85,7 +87,7 @@ fn sun_path_offset() -> usize {
 }
 
 #[cfg(unix)]
-fn create_source(channel: IoChannel, active: IoCondition, context: &MainContext) -> Source<Inner> {
+fn create_source(channel: IoChannel, active: IoCondition, cx: &MainContext) -> Source<Inner> {
     let fd = channel.as_raw_fd();
     // Wrap the channel itself in a `Source` that we create and manage.
     let src = Source::new(Inner {
@@ -96,7 +98,7 @@ fn create_source(channel: IoChannel, active: IoCondition, context: &MainContext)
         write: RefCell::new(State::NotReady),
         token: RefCell::new(None),
     });
-    src.attach(context);
+    src.attach(cx);
 
     // And finally, add the file descriptor to the source so it knows
     // what we're tracking.
@@ -110,10 +112,10 @@ fn create_source(channel: IoChannel, active: IoCondition, _context: &MainContext
     channel.create_watch(&active)
 }
 
-fn create_source_from_socket(socket: Socket, context: &MainContext) -> io::Result<Source<Inner>> {
+fn create_source_from_socket(fd: RawFd, cx: &MainContext) -> io::Result<Source<Inner>> {
     // Wrap the socket in a glib GIOChannel type, and configure the
     // channel to be a raw byte stream.
-    let channel = IoChannel::unix_new(socket.into_raw_fd());
+    let channel = IoChannel::unix_new(fd);
     channel.set_close_on_drop(true);
     channel.set_encoding(None)?;
     channel.set_buffered(false);
@@ -121,7 +123,7 @@ fn create_source_from_socket(socket: Socket, context: &MainContext) -> io::Resul
     let mut active = IoCondition::new();
     active.input(true).output(true);
 
-    Ok(create_source(channel, active, context))
+    Ok(create_source(channel, active, cx))
 }
 
 fn new_source(fd: RawFd, cx: &MainContext) -> Source<Inner> {
@@ -211,7 +213,7 @@ impl UnixStream {
     ///
     /// The returned TCP stream will be associated with the provided context. A
     /// future is returned representing the connected TCP stream.
-    pub fn connect<P: AsRef<Path>>(path: P, context: &MainContext) -> UnixStreamConnect {
+    pub fn connect<P: AsRef<Path>>(path: P, cx: &MainContext) -> UnixStreamConnect {
         let socket = (|| -> io::Result<_> {
             // Create the raw socket, set it to nonblocking mode,
             // and then issue a connection to the remote address
@@ -224,13 +226,29 @@ impl UnixStream {
                 Err(e) => return Err(e),
             }
 
-            let src = create_source_from_socket(socket, context)?;
+            let src = create_source_from_socket(socket.into_raw_fd(), cx)?;
 
             Ok(UnixStream { inner: src })
         })();
 
         UnixStreamConnect {
             state: Some(socket),
+        }
+    }
+
+    pub fn connect_abstract(name: &[u8], cx: &MainContext) -> nix::Result<UnixStreamConnect> {
+        let fd = socket(AddressFamily::Unix, SockType::Stream, SOCK_NONBLOCK, 0)?;
+        let addr = SockAddr::Unix(UnixAddr::new_abstract(name)?);
+        connect(fd, &addr)?;
+        Ok(Self::from_fd(fd, &cx))
+    }
+
+    pub fn from_fd(fd: RawFd, cx: &MainContext) -> UnixStreamConnect {
+        let state = create_source_from_socket(fd, cx)
+            .map(|inner| UnixStream { inner });
+
+        UnixStreamConnect {
+            state: Some(state),
         }
     }
 

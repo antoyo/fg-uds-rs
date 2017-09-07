@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::io;
 use std::io::ErrorKind::WouldBlock;
-use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::{self, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
@@ -12,6 +12,8 @@ use futures::task::Task;
 use futures::task;
 use futures_glib::{IoCondition, MainContext, Source, SourceFuncs, UnixToken};
 use glib_sys;
+use nix;
+use nix::sys::socket::{AddressFamily, SockAddr, SockType, UnixAddr, bind, listen, socket, SOCK_NONBLOCK};
 
 use super::{UnixStream, new_source};
 
@@ -30,6 +32,23 @@ impl UnixListener {
     pub fn bind<P: AsRef<Path>>(path: P, context: &MainContext) -> io::Result<Self> {
         let listener = net::UnixListener::bind(path)?;
         listener.set_nonblocking(true)?;
+        Ok(Self::from_unix_listener(listener, context))
+    }
+
+    pub fn bind_abstract(name: &[u8], context: &MainContext) -> nix::Result<Self> {
+        let fd = socket(AddressFamily::Unix, SockType::Stream, SOCK_NONBLOCK, 0)?;
+        let addr = SockAddr::Unix(UnixAddr::new_abstract(name)?);
+        bind(fd, &addr)?;
+        listen(fd, 128)?;
+        Ok(Self::from_fd(fd, context))
+    }
+
+    pub fn from_fd(fd: RawFd, context: &MainContext) -> Self {
+        let listener = unsafe { net::UnixListener::from_raw_fd(fd) };
+        Self::from_unix_listener(listener, context)
+    }
+
+    fn from_unix_listener(listener: net::UnixListener, context: &MainContext) -> Self {
         let fd = listener.as_raw_fd();
         let mut active = IoCondition::new();
         active.input(true);
@@ -44,10 +63,10 @@ impl UnixListener {
         // Add the file descriptor to the source so it knows what we're tracking.
         let token = inner.unix_add_fd(fd, &active);
         *inner.get_ref().token.borrow_mut() = Some(token);
-        Ok(UnixListener {
+        UnixListener {
             context: context.clone(),
             inner,
-        })
+        }
     }
 
     pub fn accept(&mut self) -> io::Result<(UnixStream, SocketAddr)> {

@@ -4,7 +4,6 @@ extern crate futures;
 extern crate futures_glib;
 extern crate tokio_io;
 
-use std::fs::remove_file;
 use std::io;
 use std::str;
 use std::thread;
@@ -56,15 +55,14 @@ impl Encoder for LineCodec {
 fn main() {
     futures_glib::init();
 
-    let path = "/tmp/named.socket";
+    let path = b"named-socket";
 
     let cx = MainContext::default(|cx| cx.clone());
     let lp = MainLoop::new(None);
     let ex = Executor::new();
     ex.attach(&cx);
 
-    remove_file(path).ok();
-    let listener = UnixListener::bind(path, &cx).unwrap();
+    let listener = UnixListener::bind_abstract(path, &cx).unwrap();
 
     let remote = ex.remote();
 
@@ -92,7 +90,7 @@ fn main() {
 
     thread::spawn(move || {
         remote.spawn(move |ex: Executor| {
-            let connection = UnixStream::connect(path, &cx);
+            let connection = UnixStream::connect_abstract(path, &cx).unwrap();
             let exe = ex.clone();
             let future = connection.and_then(move |stream| {
                 let (reader, writer) = stream.split();

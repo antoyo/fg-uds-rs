@@ -3,8 +3,6 @@ use std::mem;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::Path;
 
-use futures_glib::IoChannel;
-use glib_sys;
 use libc;
 use libc::{c_int, c_ulong, SOCK_CLOEXEC, SOCK_NONBLOCK};
 

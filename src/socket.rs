@@ -4,7 +4,10 @@ use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::Path;
 
 use libc;
-use libc::{c_int, c_ulong, SOCK_CLOEXEC, SOCK_NONBLOCK};
+use libc::{c_int, c_ulong};
+
+#[cfg(target_os = "linux")]
+use libc::{SOCK_CLOEXEC, SOCK_NONBLOCK};
 
 use super::{cvt, sockaddr_un};
 
@@ -13,6 +16,7 @@ pub struct Socket {
 }
 
 impl Socket {
+    #[cfg(target_os = "linux")]
     pub fn new(ty: c_int) -> io::Result<Socket> {
         unsafe {
             // On linux we first attempt to pass the SOCK_CLOEXEC flag to
@@ -20,15 +24,22 @@ impl Socket {
             // this option, however, was added in 2.6.27, and we still support
             // 2.6.18 as a kernel, so if the returned error is EINVAL we
             // fallthrough to the fallback.
-            if cfg!(target_os = "linux") {
-                let flags = ty | SOCK_CLOEXEC | SOCK_NONBLOCK;
-                match cvt(libc::socket(libc::AF_UNIX, flags, 0)) {
-                    Ok(fd) => return Ok(Socket { fd: fd }),
-                    Err(ref e) if e.raw_os_error() == Some(libc::EINVAL) => {}
-                    Err(e) => return Err(e),
-                }
+            let flags = ty | SOCK_CLOEXEC | SOCK_NONBLOCK;
+            match cvt(libc::socket(libc::AF_UNIX, flags, 0)) {
+                Ok(fd) => Ok(Socket { fd: fd }),
+                Err(ref e) if e.raw_os_error() == Some(libc::EINVAL) => Socket::fallback_new(ty),
+                Err(e) => Err(e),
             }
+        }
+    }
 
+    #[cfg(not(target_os = "linux"))]
+    pub fn new(ty: c_int) -> io::Result<Socket> {
+        Socket::fallback_new(ty)
+    }
+
+    fn fallback_new(ty: c_int) -> io::Result<Socket> {
+        unsafe {
             let fd = Socket { fd: try!(cvt(libc::socket(libc::AF_UNIX, ty, 0))) };
             try!(cvt(libc::ioctl(fd.fd, libc::FIOCLEX)));
             Ok(fd)

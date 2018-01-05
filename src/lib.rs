@@ -112,7 +112,7 @@ fn create_source(channel: IoChannel, active: IoCondition, _context: &MainContext
     channel.create_watch(&active)
 }
 
-fn create_source_from_socket(fd: RawFd, cx: &MainContext) -> io::Result<Source<Inner>> {
+unsafe fn create_source_from_socket(fd: RawFd, cx: &MainContext) -> io::Result<Source<Inner>> {
     // Wrap the socket in a glib GIOChannel type, and configure the
     // channel to be a raw byte stream.
     let channel = IoChannel::unix_new(fd);
@@ -126,7 +126,7 @@ fn create_source_from_socket(fd: RawFd, cx: &MainContext) -> io::Result<Source<I
     Ok(create_source(channel, active, cx))
 }
 
-fn new_source(fd: RawFd, cx: &MainContext) -> Source<Inner> {
+unsafe fn new_source(fd: RawFd, cx: &MainContext) -> Source<Inner> {
     let mut active = IoCondition::new();
     active.input(true).output(true);
 
@@ -162,7 +162,7 @@ impl State {
             State::Ready => false,
             State::Blocked(_) |
             State::NotReady => {
-                *self = State::Blocked(task::park());
+                *self = State::Blocked(task::current());
                 true
             }
         }
@@ -226,7 +226,7 @@ impl UnixStream {
                 Err(e) => return Err(e),
             }
 
-            let src = create_source_from_socket(socket.into_raw_fd(), cx)?;
+            let src = unsafe { create_source_from_socket(socket.into_raw_fd(), cx)? };
 
             Ok(UnixStream { inner: src })
         })();
@@ -240,10 +240,10 @@ impl UnixStream {
         let fd = socket(AddressFamily::Unix, SockType::Stream, SOCK_NONBLOCK, 0)?;
         let addr = SockAddr::Unix(UnixAddr::new_abstract(name)?);
         connect(fd, &addr)?;
-        Ok(Self::from_fd(fd, &cx))
+        Ok(unsafe { Self::from_fd(fd, &cx) })
     }
 
-    pub fn from_fd(fd: RawFd, cx: &MainContext) -> UnixStreamConnect {
+    pub unsafe fn from_fd(fd: RawFd, cx: &MainContext) -> UnixStreamConnect {
         let state = create_source_from_socket(fd, cx)
             .map(|inner| UnixStream { inner });
 

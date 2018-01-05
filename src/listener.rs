@@ -90,7 +90,7 @@ impl UnixListener {
             },
             Ok((socket, addr)) => {
                 socket.set_nonblocking(true)?;
-                let inner = new_source(socket.into_raw_fd(), &self.context);
+                let inner = unsafe { new_source(socket.into_raw_fd(), &self.context) };
                 let stream = UnixStream {
                     inner,
                 };
